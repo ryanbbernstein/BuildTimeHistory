@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -266,6 +268,26 @@ namespace BuildTimeHistory
 
                     sb.AppendLine($"taking a total of {totalBuildTime.Humanize()} ({totalBuildTime.Hours:00}:{totalBuildTime.Minutes:00}:{totalBuildTime.Seconds:00})");
 
+                    var lastWeekRecords = await GetLastWeekRecordsAsync();
+                    if(lastWeekRecords.Count > 1)
+                    {
+                        var startDate = DateTime.Now.AddDays( -(lastWeekRecords.Count - 1) );
+                        var endDate = DateTime.Now.AddDays( 0 );
+                        sb.AppendLine( $"===========================================" );
+                        sb.AppendLine( $"Last Week's build summary from {startDate.ToShortDateString()} to {endDate.ToShortDateString()} ({lastWeekRecords.Count} days): " );
+
+                        var totalBuilds = lastWeekRecords.Sum( record => record.TotalCount );
+                        sb.Append( $"{totalBuilds} build{(totalBuilds > 1 ? "s" : string.Empty)} " );
+
+                        var totalSuccessful = lastWeekRecords.Sum( record => record.SuccessCount );
+                        var totalFailed = lastWeekRecords.Sum( record => record.FailCount );
+                        var totalCanceled = lastWeekRecords.Sum( record => record.CancelCount );
+                        sb.Append( $"({totalSuccessful} successful, {totalFailed} failed, {totalCanceled} canceled) " );
+
+                        var weekTotalBuildTime = TimeSpan.FromMilliseconds( lastWeekRecords.Sum( record => record.CalculatedTotalBuildTime ) );
+                        sb.AppendLine( $"taking a total of {weekTotalBuildTime.Humanize()} ({weekTotalBuildTime.Hours:00}:{weekTotalBuildTime.Minutes:00}:{weekTotalBuildTime.Seconds:00})" );
+                    }
+
                     await OutputPane.Instance.WriteAsync(sb.ToString());
                 }
                 catch (Exception exc)
@@ -358,6 +380,31 @@ namespace BuildTimeHistory
             }
 
             return HistoryRecord.CreateNew();
+        }
+
+        private async Task<List<HistoryRecord>> GetLastWeekRecordsAsync()
+        {
+            List<HistoryRecord> records = new List<HistoryRecord>();
+            try
+            {
+                for(var i = 0; i < 7; i++)
+                {
+                    var path = GetHistoryFilePath(i);
+
+                    if(File.Exists( path ))
+                    {
+                        records.Add( JsonConvert.DeserializeObject<HistoryRecord>( File.ReadAllText( path ) ) );
+                    }
+                }
+            }
+            catch(Exception exc)
+            {
+                await OutputPane.Instance.WriteAsync( "Failed to load history files for the last week" );
+                await OutputPane.Instance.WriteAsync( exc.Message );
+                await OutputPane.Instance.WriteAsync( exc.Source );
+                await OutputPane.Instance.WriteAsync( exc.StackTrace );
+            }
+            return records;
         }
     }
 }
